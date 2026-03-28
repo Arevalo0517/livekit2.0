@@ -6,6 +6,7 @@ Uses LiveKit Agents v1.3.x API:
   - AgentSession for STT + LLM + TTS pipeline
   - One worker process handles up to 4 concurrent calls (t3.medium capacity)
 """
+import asyncio
 import logging
 import os
 
@@ -60,17 +61,21 @@ async def voice_agent_session(ctx: JobContext) -> None:
 
     # Track transcript turns as they are committed
     @session.on("user_input_transcribed")
-    def on_user_input(event) -> None:
+    async def on_user_input(event) -> None:
         if event.is_final:
             transcript_parts.append(f"User: {event.transcript}")
-            save_partial_transcript(call_id, "\n".join(transcript_parts))
+            snapshot = "\n".join(transcript_parts)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, save_partial_transcript, call_id, snapshot)
 
     @session.on("conversation_item_added")
-    def on_conversation_item(event) -> None:
+    async def on_conversation_item(event) -> None:
         item = event.item
         if item.role == "assistant" and item.text_content:
             transcript_parts.append(f"Agent: {item.text_content}")
-            save_partial_transcript(call_id, "\n".join(transcript_parts))
+            snapshot = "\n".join(transcript_parts)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, save_partial_transcript, call_id, snapshot)
 
     # Start the session in the room
     try:
