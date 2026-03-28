@@ -1,0 +1,40 @@
+# Secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Local dev Docker overrides — exposes DB ports, must NOT be deployed to production
+docker-compose.override.yml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# Database backups (local copies)
+backups/
+
+# Certbot ACME challenge files (auto-generated, not needed in git)
+certbot/
