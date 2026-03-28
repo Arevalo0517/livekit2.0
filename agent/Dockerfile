@@ -6,8 +6,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy application code into the 'agent' package directory
+RUN mkdir -p agent
+COPY . agent/
+RUN touch agent/__init__.py
 
 # LiveKit Agents CLI: 'start' subcommand runs the worker
-CMD ["python", "worker.py", "start"]
+CMD ["python", "agent/worker.py", "start"]
