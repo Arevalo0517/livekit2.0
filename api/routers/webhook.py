@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _validate_twilio_signature(request: Request, settings: Settings) -> bool:
+def _validate_twilio_signature(
+    request: Request, form_data: dict, settings: Settings
+) -> bool:
     """
     Validate that the request genuinely came from Twilio.
     Reconstructs the HTTPS URL when behind an nginx reverse proxy.
@@ -30,7 +32,7 @@ def _validate_twilio_signature(request: Request, settings: Settings) -> bool:
         scheme = request.url.scheme
         url = url.replace(f"{scheme}://", f"{forwarded_proto}://", 1)
     twilio_signature = request.headers.get("X-Twilio-Signature", "")
-    return validator.validate(url, {}, twilio_signature)
+    return validator.validate(url, form_data, twilio_signature)
 
 
 @router.post("/voice", response_class=Response)
@@ -50,6 +52,7 @@ async def twilio_voice_webhook(
     5. Return TwiML connecting caller to LiveKit via SIP
     """
     form_data = await request.form()
+    form_dict = dict(form_data)
     call_sid = str(form_data.get("CallSid", ""))
     from_number = str(form_data.get("From", ""))
     to_number = str(form_data.get("To", ""))
@@ -60,7 +63,7 @@ async def twilio_voice_webhook(
 
     # Validate Twilio signature in production
     if settings.ENVIRONMENT == "production":
-        if not _validate_twilio_signature(request, settings):
+        if not _validate_twilio_signature(request, form_dict, settings):
             logger.warning(f"Invalid Twilio signature for call {call_sid}")
             response = VoiceResponse()
             response.say("Unauthorized request.", language="en-US")
@@ -93,13 +96,23 @@ async def twilio_voice_webhook(
         return Response(content=str(response), media_type="application/xml")
 
     # Log the call to the database
-    await create_call(
-        db=db,
-        agent_id=agent.id,
-        caller_number=from_number or None,
-        twilio_call_sid=call_sid,
-        livekit_room_name=room_name,
-    )
+    try:
+        await create_call(
+            db=db,
+            agent_id=agent.id,
+            caller_number=from_number or None,
+            twilio_call_sid=call_sid,
+            livekit_room_name=room_name,
+        )
+    except Exception as exc:
+        logger.error(f"Failed to log call {call_sid} to DB: {exc}")
+        response = VoiceResponse()
+        response.say(
+            "We are unable to connect your call. Please try again later.",
+            language="en-US",
+        )
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
 
     # Build TwiML: connect Twilio to LiveKit via SIP trunk
     # SIP URI format: sip:{room_name}@{sip_trunk_id}.sip.livekit.cloud
@@ -145,7 +158,11 @@ async def twilio_status_callback(
                 if call_status in ("no-answer", "canceled")
                 else "failed"
             )
-            await fail_call(db, call.id, f"Twilio reported: {call_status}")
+            from datetime import datetime, timezone
+            call.ended_at = datetime.now(timezone.utc)
+            call.status = db_status
+            call.metadata = {**call.metadata, "error": f"Twilio reported: {call_status}"}
+            await db.flush()
             logger.info(f"Marked call {call.id} as {db_status}")
 
     return Response(content="", status_code=204)
