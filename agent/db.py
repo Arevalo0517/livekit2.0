@@ -2,6 +2,7 @@
 Synchronous database client for the LiveKit agent worker.
 The agent runs as a standalone process — sync SQLAlchemy is simpler here.
 """
+import json
 import logging
 import os
 
@@ -58,6 +59,8 @@ def get_agent_config_by_room(room_name: str) -> dict | None:
 
 def save_partial_transcript(call_id: str, partial: str) -> None:
     """Persist partial transcript to metadata for crash recovery."""
+    # Encode to JSON string in Python to avoid SQLAlchemy/psycopg2 cast issues
+    partial_json = json.dumps(partial)
     with _Session() as session:
         session.execute(
             text("""
@@ -65,11 +68,11 @@ def save_partial_transcript(call_id: str, partial: str) -> None:
                 SET metadata = jsonb_set(
                     COALESCE(metadata, '{}'),
                     '{partial_transcript}',
-                    to_jsonb(:partial::text)
+                    :partial_json
                 )
-                WHERE id = :call_id::uuid
+                WHERE id = CAST(:call_id AS uuid)
             """),
-            {"call_id": call_id, "partial": partial},
+            {"call_id": call_id, "partial_json": partial_json},
         )
         session.commit()
 
@@ -83,7 +86,7 @@ def complete_call(call_id: str, transcript: str, status: str = "completed") -> N
                 SET ended_at   = NOW(),
                     transcript = :transcript,
                     status     = :status
-                WHERE id = :call_id::uuid
+                WHERE id = CAST(:call_id AS uuid)
             """),
             {"call_id": call_id, "transcript": transcript, "status": status},
         )
@@ -93,6 +96,8 @@ def complete_call(call_id: str, transcript: str, status: str = "completed") -> N
 
 def fail_call(call_id: str, error: str) -> None:
     """Mark a call as failed with error details in metadata."""
+    # Encode error as JSON string in Python to avoid SQLAlchemy cast conflicts
+    error_json = json.dumps(error)
     with _Session() as session:
         session.execute(
             text("""
@@ -102,11 +107,11 @@ def fail_call(call_id: str, error: str) -> None:
                     metadata = jsonb_set(
                         COALESCE(metadata, '{}'),
                         '{error}',
-                        to_jsonb(:error::text)
+                        :error_json
                     )
-                WHERE id = :call_id::uuid
+                WHERE id = CAST(:call_id AS uuid)
             """),
-            {"call_id": call_id, "error": error},
+            {"call_id": call_id, "error_json": error_json},
         )
         session.commit()
     logger.info(f"Call {call_id} marked failed: {error}")

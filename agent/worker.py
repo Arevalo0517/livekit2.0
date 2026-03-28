@@ -9,6 +9,7 @@ Uses LiveKit Agents v1.3.x API:
 import asyncio
 import logging
 
+from livekit import rtc
 from livekit.agents import AutoSubscribe, JobContext, cli
 from livekit.agents import AgentServer
 
@@ -83,13 +84,23 @@ async def voice_agent_session(ctx: JobContext) -> None:
     session.on("user_input_transcribed", on_user_input)
     session.on("conversation_item_added", on_conversation_item)
 
+    # Future that resolves when all remote participants have left
+    disconnect_future: asyncio.Future = asyncio.get_event_loop().create_future()
+
+    def on_participant_disconnected(participant: rtc.RemoteParticipant) -> None:
+        if len(ctx.room.remote_participants) == 0:
+            if not disconnect_future.done():
+                disconnect_future.set_result(None)
+
+    ctx.room.on("participant_disconnected", on_participant_disconnected)
+
     # Start the session in the room
     try:
         await session.start(agent=agent, room=ctx.room)
         logger.info(f"Session started in room {room_name}")
 
         # Wait until all participants disconnect
-        await ctx.wait_for_disconnect()
+        await disconnect_future
 
     except Exception as exc:
         logger.error(f"Session error in room {room_name}: {exc}")
