@@ -99,6 +99,9 @@ async def voice_agent_session(ctx: JobContext) -> None:
         await session.start(agent=agent, room=ctx.room)
         logger.info(f"Session started in room {room_name}")
 
+        # Trigger greeting — agent speaks first so caller doesn't hear silence
+        await session.generate_reply()
+
         # Wait until all participants disconnect
         await disconnect_future
 
