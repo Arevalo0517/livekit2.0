@@ -18,8 +18,9 @@ class Settings(BaseSettings):
     LIVEKIT_API_KEY: str
     LIVEKIT_API_SECRET: str
 
-    # LiveKit SIP Trunk
+    # LiveKit SIP — trunk ID and project SIP hostname (from LiveKit Cloud → Telephony → Dispatch Rules)
     LIVEKIT_SIP_TRUNK_ID: str = ""
+    LIVEKIT_SIP_HOST: str = ""  # e.g. 4dp826keg0d.sip.livekit.cloud
 
     # Twilio
     TWILIO_ACCOUNT_SID: str

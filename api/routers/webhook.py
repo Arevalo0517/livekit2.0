@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -10,8 +11,7 @@ from twilio.twiml.voice_response import Dial, VoiceResponse
 from api.config import Settings, get_settings
 from api.database import get_db
 from api.models import Call
-from api.services.call_logger import create_call, fail_call, get_agent_by_phone
-from api.services.livekit_service import create_room
+from api.services.call_logger import get_agent_by_phone
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,7 +26,6 @@ def _validate_twilio_signature(
     """
     validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
     url = str(request.url)
-    # Reconstruct HTTPS URL when behind nginx (X-Forwarded-Proto header)
     forwarded_proto = request.headers.get("x-forwarded-proto")
     if forwarded_proto:
         scheme = request.url.scheme
@@ -47,9 +46,9 @@ async def twilio_voice_webhook(
     Flow:
     1. Validate Twilio signature (production only)
     2. Look up agent by called phone number
-    3. Create LiveKit room
-    4. Log call to DB
-    5. Return TwiML connecting caller to LiveKit via SIP
+    3. Create pending call record in DB (room name filled in by agent worker)
+    4. Return TwiML: connect caller to LiveKit SIP endpoint
+       - SIP username = Twilio CallSid so the agent worker can look up the call record
     """
     form_data = await request.form()
     form_dict = dict(form_data)
@@ -81,31 +80,22 @@ async def twilio_voice_webhook(
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
-    # Create LiveKit room (named after the call SID for traceability)
-    room_name = f"call_{call_sid}"
+    # Create a pending call record.
+    # The agent worker will fill in livekit_room_name and set status=in_progress
+    # once it receives the job from LiveKit.
     try:
-        await create_room(room_name)
-    except Exception as exc:
-        logger.error(f"Failed to create LiveKit room for call {call_sid}: {exc}")
-        response = VoiceResponse()
-        response.say(
-            "We are unable to connect your call. Please try again later.",
-            language="en-US",
-        )
-        response.hangup()
-        return Response(content=str(response), media_type="application/xml")
-
-    # Log the call to the database
-    try:
-        await create_call(
-            db=db,
+        call = Call(
             agent_id=agent.id,
             caller_number=from_number or None,
             twilio_call_sid=call_sid,
-            livekit_room_name=room_name,
+            livekit_room_name=None,
+            status="pending",
+            started_at=datetime.now(timezone.utc),
         )
+        db.add(call)
+        await db.commit()
     except Exception as exc:
-        logger.error(f"Failed to log call {call_sid} to DB: {exc}")
+        logger.error(f"Failed to create call record for {call_sid}: {exc}")
         response = VoiceResponse()
         response.say(
             "We are unable to connect your call. Please try again later.",
@@ -114,17 +104,23 @@ async def twilio_voice_webhook(
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
-    # Build TwiML: connect Twilio to LiveKit via SIP trunk
-    # SIP URI format: sip:{room_name}@{sip_trunk_id}.sip.livekit.cloud
-    sip_uri = (
-        f"sip:{room_name}@{settings.LIVEKIT_SIP_TRUNK_ID}.sip.livekit.cloud"
-    )
+    # Build TwiML: connect Twilio to LiveKit via SIP.
+    # Username = Twilio CallSid → agent worker reads sip.to attribute to find the call record.
+    # The LiveKit dispatch rule (Individual type) will auto-create a room for this call.
+    if not settings.LIVEKIT_SIP_HOST:
+        logger.error("LIVEKIT_SIP_HOST not configured")
+        response = VoiceResponse()
+        response.say("Service not configured.", language="en-US")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
+
+    sip_uri = f"sip:{call_sid}@{settings.LIVEKIT_SIP_HOST};transport=tcp"
     response = VoiceResponse()
     dial = Dial()
     dial.sip(sip_uri)
     response.append(dial)
 
-    logger.info(f"Connecting call {call_sid} to LiveKit room {room_name}")
+    logger.info(f"Routing call {call_sid} to LiveKit SIP: {sip_uri}")
     return Response(content=str(response), media_type="application/xml")
 
 
@@ -143,12 +139,11 @@ async def twilio_status_callback(
 
     logger.info(f"Status callback: sid={call_sid}, status={call_status}")
 
-    # Only act on terminal statuses — completed is handled by the agent worker
     if call_status in ("failed", "busy", "no-answer", "canceled"):
         result = await db.execute(
             select(Call).where(
                 Call.twilio_call_sid == call_sid,
-                Call.status == "in_progress",
+                Call.status.in_(["pending", "in_progress"]),
             )
         )
         call = result.scalar_one_or_none()
@@ -158,10 +153,12 @@ async def twilio_status_callback(
                 if call_status in ("no-answer", "canceled")
                 else "failed"
             )
-            from datetime import datetime, timezone
             call.ended_at = datetime.now(timezone.utc)
             call.status = db_status
-            call.call_metadata = {**call.call_metadata, "error": f"Twilio reported: {call_status}"}
+            call.call_metadata = {
+                **call.call_metadata,
+                "error": f"Twilio reported: {call_status}",
+            }
             await db.flush()
             logger.info(f"Marked call {call.id} as {db_status}")
 
