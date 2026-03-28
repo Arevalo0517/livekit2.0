@@ -8,6 +8,9 @@ from sqlalchemy import text
 
 from api.config import get_settings
 from api.database import async_session_maker
+from api.routers.agents import router as agents_router
+from api.routers.calls import router as calls_router
+from api.routers.clients import router as clients_router
 from api.routers.webhook import router as webhook_router
 from api.services.call_logger import aggregate_daily_metrics
 
@@ -55,6 +58,11 @@ app = FastAPI(title="VoiceAI API", version="0.1.0", lifespan=lifespan)
 
 # Routers
 app.include_router(webhook_router, prefix="/webhook/twilio", tags=["webhook"])
+
+# Admin API — protected by X-Admin-Key header
+app.include_router(clients_router)
+app.include_router(agents_router)
+app.include_router(calls_router)
 
 
 @app.get("/health", tags=["health"])

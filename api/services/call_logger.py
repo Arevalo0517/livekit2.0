@@ -93,7 +93,7 @@ async def aggregate_daily_metrics(db: AsyncSession, target_date: date) -> None:
             SELECT
                 gen_random_uuid(),
                 agent_id,
-                :target_date::date,
+                CAST(:target_date AS date),
                 COUNT(*),
                 COUNT(*) FILTER (WHERE status = 'completed'),
                 COUNT(*) FILTER (WHERE status = 'failed'),
@@ -101,7 +101,7 @@ async def aggregate_daily_metrics(db: AsyncSession, target_date: date) -> None:
                 COALESCE(SUM(duration_seconds), 0),
                 AVG(duration_seconds)
             FROM calls
-            WHERE started_at::date = :target_date::date
+            WHERE DATE(started_at) = CAST(:target_date AS date)
             GROUP BY agent_id
             ON CONFLICT (agent_id, date)
             DO UPDATE SET
@@ -112,5 +112,5 @@ async def aggregate_daily_metrics(db: AsyncSession, target_date: date) -> None:
                 total_duration_seconds = EXCLUDED.total_duration_seconds,
                 avg_duration_seconds  = EXCLUDED.avg_duration_seconds
         """),
-        {"target_date": str(target_date)},
+        {"target_date": target_date},
     )

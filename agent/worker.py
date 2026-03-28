@@ -56,7 +56,7 @@ async def _wait_for_sip_participant(ctx: JobContext) -> rtc.RemoteParticipant | 
         return None
 
 
-@server.rtc_session()
+@server.rtc_session(agent_name="voice-agent")
 async def voice_agent_session(ctx: JobContext) -> None:
     """
     Entry point for each inbound call job.
@@ -82,17 +82,31 @@ async def voice_agent_session(ctx: JobContext) -> None:
         f"attributes={sip_participant.attributes}"
     )
 
-    # Extract Twilio CallSid from the SIP 'to' attribute.
-    # The webhook set the SIP username = Twilio CallSid, so LiveKit stores it in sip.to
-    # as "{call_sid}@{sip_host}".
-    sip_to = sip_participant.attributes.get("sip.to", "")
-    twilio_call_sid = sip_to.split("@")[0].strip() if sip_to else ""
+    # Extract the original inbound Twilio CallSid.
+    # When Twilio does <Dial><Sip>, it creates a NEW outbound leg with a different SID.
+    # LiveKit stores the outbound leg SID in sip.twilio.callSid, but the DB record was
+    # created with the INBOUND CallSid (from the Twilio webhook).
+    # LiveKit stores the original inbound CallSid in sip.trunkPhoneNumber attribute.
+    attrs = sip_participant.attributes
+    logger.info(f"SIP participant attributes: {dict(attrs)}")
 
-    # Fallback: try the participant identity (some LiveKit versions use it differently)
+    # Primary: sip.trunkPhoneNumber = original inbound Twilio CallSid (matches DB record)
+    twilio_call_sid = attrs.get("sip.trunkPhoneNumber", "").strip()
+
+    # Fallback 1: sip.twilio.callSid (outbound leg — may not match DB, but try anyway)
+    if not twilio_call_sid:
+        twilio_call_sid = attrs.get("sip.twilio.callSid", "").strip()
+
+    # Fallback 2: sip.to header (legacy format: "{call_sid}@{sip_host}")
+    if not twilio_call_sid:
+        sip_to = attrs.get("sip.to", "")
+        twilio_call_sid = sip_to.split("@")[0].strip() if sip_to else ""
+
+    # Fallback 3: participant identity
     if not twilio_call_sid:
         twilio_call_sid = sip_participant.identity.split("@")[0].strip()
 
-    logger.info(f"Extracted twilio_call_sid={twilio_call_sid!r} from sip.to={sip_to!r}")
+    logger.info(f"Resolved twilio_call_sid={twilio_call_sid!r}")
 
     if not twilio_call_sid:
         logger.error(f"Could not extract Twilio CallSid from SIP participant in room {room_name}")
@@ -122,10 +136,9 @@ async def voice_agent_session(ctx: JobContext) -> None:
         if event.is_final:
             transcript_parts.append(f"User: {event.transcript}")
             snapshot = "\n".join(transcript_parts)
-            asyncio.create_task(
-                asyncio.get_event_loop().run_in_executor(
-                    None, save_partial_transcript, call_id, snapshot
-                )
+            # run_in_executor returns a Future (not a coroutine) — use it directly
+            asyncio.get_event_loop().run_in_executor(
+                None, save_partial_transcript, call_id, snapshot
             )
 
     def on_conversation_item(event) -> None:
@@ -133,10 +146,8 @@ async def voice_agent_session(ctx: JobContext) -> None:
         if item.role == "assistant" and item.text_content:
             transcript_parts.append(f"Agent: {item.text_content}")
             snapshot = "\n".join(transcript_parts)
-            asyncio.create_task(
-                asyncio.get_event_loop().run_in_executor(
-                    None, save_partial_transcript, call_id, snapshot
-                )
+            asyncio.get_event_loop().run_in_executor(
+                None, save_partial_transcript, call_id, snapshot
             )
 
     session.on("user_input_transcribed", on_user_input)
