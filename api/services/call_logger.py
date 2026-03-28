@@ -72,7 +72,7 @@ async def fail_call(
         return None
     call.ended_at = datetime.now(timezone.utc)
     call.status = "failed"
-    call.metadata = {**call.metadata, "error": error_details}
+    call.call_metadata = {**call.call_metadata, "error": error_details}
     await db.flush()
     await db.refresh(call)
     return call

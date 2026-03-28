@@ -120,7 +120,9 @@ class Call(Base):
     )
     transcript: Mapped[str | None] = mapped_column(Text)
     recording_url: Mapped[str | None] = mapped_column(Text)
-    metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    call_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
 
     # Relationships
     agent: Mapped["Agent"] = relationship("Agent", back_populates="calls")

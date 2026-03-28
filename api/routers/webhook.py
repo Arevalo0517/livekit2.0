@@ -161,7 +161,7 @@ async def twilio_status_callback(
             from datetime import datetime, timezone
             call.ended_at = datetime.now(timezone.utc)
             call.status = db_status
-            call.metadata = {**call.metadata, "error": f"Twilio reported: {call_status}"}
+            call.call_metadata = {**call.call_metadata, "error": f"Twilio reported: {call_status}"}
             await db.flush()
             logger.info(f"Marked call {call.id} as {db_status}")
 
