@@ -2,8 +2,13 @@
 set -euo pipefail
 
 # Load environment variables (needed for POSTGRES_USER and POSTGRES_DB)
+ENV_FILE="/opt/voiceai/.env"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "ERROR: Environment file not found at $ENV_FILE" >&2
+    exit 1
+fi
 # shellcheck source=/opt/voiceai/.env
-source /opt/voiceai/.env
+source "$ENV_FILE"
 
 BACKUP_DIR="/opt/voiceai/backups"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
