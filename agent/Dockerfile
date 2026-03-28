@@ -12,4 +12,4 @@ COPY . agent/
 RUN touch agent/__init__.py
 
 # LiveKit Agents CLI: 'start' subcommand runs the worker
-CMD ["python", "agent/worker.py", "start"]
+CMD ["python", "-m", "agent.worker", "start"]
