@@ -8,10 +8,8 @@ Uses LiveKit Agents v1.3.x API:
 """
 import asyncio
 import logging
-import os
 
 from livekit.agents import AutoSubscribe, JobContext, cli
-from livekit.agents.voice import AgentSession  # noqa: F401 (re-exported for clarity)
 from livekit.agents import AgentServer
 
 from agent.db import (
@@ -59,23 +57,31 @@ async def voice_agent_session(ctx: JobContext) -> None:
     session = build_session(agent_config)
     agent = build_agent(agent_config)
 
-    # Track transcript turns as they are committed
-    @session.on("user_input_transcribed")
-    async def on_user_input(event) -> None:
+    # Track transcript turns as they are committed.
+    # .on() requires synchronous callbacks — async work is dispatched via create_task.
+    def on_user_input(event) -> None:
         if event.is_final:
             transcript_parts.append(f"User: {event.transcript}")
             snapshot = "\n".join(transcript_parts)
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, save_partial_transcript, call_id, snapshot)
+            asyncio.create_task(
+                asyncio.get_event_loop().run_in_executor(
+                    None, save_partial_transcript, call_id, snapshot
+                )
+            )
 
-    @session.on("conversation_item_added")
-    async def on_conversation_item(event) -> None:
+    def on_conversation_item(event) -> None:
         item = event.item
         if item.role == "assistant" and item.text_content:
             transcript_parts.append(f"Agent: {item.text_content}")
             snapshot = "\n".join(transcript_parts)
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, save_partial_transcript, call_id, snapshot)
+            asyncio.create_task(
+                asyncio.get_event_loop().run_in_executor(
+                    None, save_partial_transcript, call_id, snapshot
+                )
+            )
+
+    session.on("user_input_transcribed", on_user_input)
+    session.on("conversation_item_added", on_conversation_item)
 
     # Start the session in the room
     try:
