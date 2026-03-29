@@ -56,8 +56,8 @@ export async function fetchCalls(params: {
   agent_id?: string;
 } = {}): Promise<CallList> {
   const qs = new URLSearchParams();
-  if (params.page) qs.set('page', String(params.page));
-  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.page != null) qs.set('page', String(params.page));
+  if (params.limit != null) qs.set('limit', String(params.limit));
   if (params.status) qs.set('status', params.status);
   if (params.agent_id) qs.set('agent_id', params.agent_id);
   const res = await fetch(`${base}/admin/calls?${qs}`);

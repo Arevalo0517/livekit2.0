@@ -15,19 +15,22 @@ async function handler(
   const search = req.nextUrl.search;
   const url = `${API_BASE}/${path}${search}`;
 
-  const headers: Record<string, string> = {
-    'X-Admin-Key': adminKey,
-    'Content-Type': 'application/json',
-  };
-
   const body =
     req.method !== 'GET' && req.method !== 'HEAD'
       ? await req.text()
       : undefined;
 
+  const headers: Record<string, string> = {
+    'X-Admin-Key': adminKey,
+    ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+  };
+
   const upstream = await fetch(url, { method: req.method, headers, body });
   const text = await upstream.text();
-  const data = text ? JSON.parse(text) : null;
+  if (!text) {
+    return new Response(null, { status: upstream.status });
+  }
+  const data = JSON.parse(text);
   return NextResponse.json(data, { status: upstream.status });
 }
 
