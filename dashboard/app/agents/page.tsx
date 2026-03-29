@@ -7,9 +7,13 @@ import { fetchAgents, type Agent } from '@/lib/api';
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
-    fetchAgents().then(setAgents).finally(() => setLoading(false));
+    fetchAgents()
+      .then(setAgents)
+      .catch(() => setFetchError(true))
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -17,6 +21,7 @@ export default function AgentsPage() {
       <h1 className="text-2xl font-bold mb-6">Agentes</h1>
 
       {loading && <p className="text-gray-400">Cargando…</p>}
+      {fetchError && <p className="text-red-500">Error al cargar los agentes.</p>}
 
       <div className="grid gap-4">
         {agents.map((agent) => (

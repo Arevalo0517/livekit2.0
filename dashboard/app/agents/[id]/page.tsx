@@ -8,12 +8,15 @@ export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [agent, setAgent] = useState<Agent | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchAgent(id).then(setAgent);
+    fetchAgent(id)
+      .then(setAgent)
+      .catch(() => setLoadError(true));
   }, [id]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -39,6 +42,7 @@ export default function AgentDetailPage() {
     }
   }
 
+  if (loadError) return <p className="text-red-500">Error al cargar el agente.</p>;
   if (!agent) return <p className="text-gray-400">Cargando…</p>;
 
   return (
