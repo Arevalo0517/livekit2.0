@@ -14,7 +14,7 @@ export default function TranscriptViewer({ transcript }: Props) {
       {lines.map((line, i) => {
         const isAgent = line.startsWith('Agent:');
         return (
-          <div key={i} className={`flex gap-3 ${isAgent ? '' : 'flex-row-reverse'}`}>
+          <div key={`${i}-${line}`} className={`flex gap-3 ${isAgent ? '' : 'flex-row-reverse'}`}>
             <span className="shrink-0 text-xs font-semibold text-gray-400 mt-1 w-12 text-right">
               {isAgent ? 'Agente' : 'User'}
             </span>

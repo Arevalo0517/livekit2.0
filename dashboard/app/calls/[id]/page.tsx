@@ -24,12 +24,17 @@ export default function CallDetailPage() {
   const router = useRouter();
   const [call, setCall] = useState<Call | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetchCall(id).then(setCall).finally(() => setLoading(false));
+    fetchCall(id)
+      .then(setCall)
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, [id]);
 
   if (loading) return <p className="text-gray-400">Cargando…</p>;
+  if (error) return <p className="text-red-500">Error al cargar la llamada.</p>;
   if (!call) return <p className="text-red-500">Llamada no encontrada</p>;
 
   return (
